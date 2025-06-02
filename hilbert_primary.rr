@@ -1,0 +1,321 @@
+/**************************************************************
+*  hilbert_primary
+*
+*  Input : Q : a prime / primary ideal in K[V]
+*          A : a list of parameters
+*          V : a list of variables
+*  Output : [F,[C,J]] : a semi-Hilbert subset for Q i.e., 
+*                       \phi_a(Q) is a prime / primary ideal for any a\in V(C)\setminus V(J) if F(a,X) is irreducible over K
+*                       where 
+*                           - \phi_a(Q) is the specialization of Q at a 
+*                           - F(a,X) is the specialization of F at a 
+*                           - C = Q\cap K[A] is the condition ideal of Q
+*************************************************************/
+def hilbert_primary (Q,A,V)
+{
+    VA = append(V,A);
+    PD = noro_pd.prime_dec(Q,VA);
+    if (length(PD) !=1){
+        return "the ideal is not a prime ideal";
+    }
+
+    P = PD[0];
+    Condition = condition_ideal(Q,A,V);
+    IC = noro_pd.ideal_colon(Q,P,VA);
+    if (type(IC[0]) != 1){
+        print("the ideal is not prime but primary");
+        if (Condition != [0]){
+            PDC = noro_pd.prime_dec(Condition,A);
+            ICC = noro_pd.ideal_colon(Condition,PDC[0],A);
+            if (type(ICC[0]) != 1){
+                return "the condition ideal is not a prime ideal";
+            }
+        }
+    }else{
+        print("the ideal is a prime ideal"); 
+    }
+
+    U = msis_prime(P,A,V);
+    Generic_Mini = generic_minipoly(P,A,V,U);
+    J1 = [leadcoef_ideal(P,A,V,0)];
+    J2 = [generic_mis (P,A,V,U)];
+    J3 = [Generic_Mini[1]];
+    J4 = generic_ec(Q,A,V,U);
+    J = noro_pd.ideal_list_intersection([J1,J2,J3,J4],A,0);
+    return [Generic_Mini[0],[Condition,J]];
+}
+
+/**************************************************************
+*  generic_mis
+*
+*  Input : Q : a primary ideal in K[V]
+*          A : a list of parameters
+*          V : a list of variables
+*          U : Maximal Strongly Independent Set of P
+*  Output : J : an ideal in K[A] such that 
+*           - J \supsetneq Q\cap K[A]
+*           - U\cap X is a MIS of \phi_a(P) for any a\in V(Q\cap K[A])\setminus V(J) 
+*************************************************************/
+def generic_mis (Q,A,V,U){
+    VsU = setminus(V,U);
+    UcapA = setminus(U,A);
+    NewVars = append(VsU,UcapA);
+    J = leadcoef_ideal(Q,A,NewVars,[[0,length(VsU)],[0,length(UcapA)]]);
+    return J;
+}
+
+/**************************************************************
+*  generic_minipoly
+*
+*  Input : Q : an ideal in K[V]
+*          A : a list of parameters
+*          V : a list of variables
+*          U : Maximal Strongly Independent Set of P
+*  Output : [F,J] : F is a generic minimal polynomial of Q with respect to U over V(Q\cap K[A])\setminus V(J)
+*************************************************************/
+def generic_minipoly (Q,A,V,U){
+    VsU = setminus(V,U);
+    S = shape_basis(Q,VsU,setminus(A,U),U);
+    Ideal = S[0];
+    MinusRandom = [];
+    for(I=0;I<length(S[1]);I++){
+        MinusRandom = cons(-S[1][I],MinusRandom);
+    }
+    G = affine(Ideal,VsU,MinusRandom);
+    J = leadcoef_ideal(G,A,V,0);
+    return [Ideal[length(Ideal)-1],J];
+}
+
+/**************************************************************
+*  generic_ec
+*
+*  Input : Q : an ideal in K[V]
+*          A : a list of parameters
+*          V : a list of variables
+*          U : Maximal Strongly Independent Set of P
+*  Output : J : an ideal in K[A] such that 
+*           - J \supsetneq Q\cap K[A]
+*           - \phi_a(Q)=\phi_a(Q)^ec for any a\in V(Q\cap K[A])\setminus V(J)
+*              where \phi_a(Q)^ec = \phi_a(Q)K(U)[V\U]\cap K[V]
+*************************************************************/
+def generic_ec (Q,A,V,U){
+    VsU = setminus(V,U);
+    VcapU = setminus(V,VsU);
+    NewVars = append(VsU,VcapU);
+    NewAllVars = append(NewVars,A);
+    OrderV = [[0,length(VsU)],[0,length(VcapU)]];
+    Order = append(OrderV,[[0,length(A)]]);
+    G = nd_gr(Q,NewAllVars,0,Order);
+    J1 = [leadcoef_ideal(G,A,NewVars,OrderV)];
+    H = leadcoef_ideal(G,append(VcapU,A),VsU,0);
+    T = uc();
+    L = cons(1-T*H,Q);
+    G = nd_gr(L,cons(T,NewAllVars),0,cons([0,1],Order));
+    J2 = [leadcoef_ideal(G,A,cons(T,NewVars),cons([0,1],OrderV))];
+    J = noro_pd.ideal_list_intersection([J1,J2],A,0);
+    return J;
+}
+
+/**************************************************************
+*  shape_basis
+*
+*  Input : Q : an ideal in K[V]
+*          V : a list of variables which are not in U
+*          VA : a list of parameters which are not in U
+*          U : Maximal Strongly Independent Set of Q
+*  Output : [Shape, Random] where Shape is a list of polynomials in K[V]
+*           and Random is a list of random coefficients used for affine transformation
+*************************************************************/
+def shape_basis (Q,V,VA,U){
+    XN = V[length(V)-1];
+    G = Q;
+    Random = [];
+    Max = 2;
+    SubVars = append(VA,U);
+    AllVars = append(V,SubVars);
+    while(1){
+        G = nd_gr(G,AllVars,0,2);
+        Shape = [];
+        for(I=0;I<length(V);I++){
+            Flag = 0;
+            for(J=0;J<length(G);J++){
+                L = setminus(vars(G[J]),SubVars);
+                if (L == [XN,V[I]] || L == [V[I],XN] || L == [V[I]]){
+                    if (I == length(V)-1 || (deg(G[J],V[I]) == 1 && setminus(vars(coef(G[J],1,V[I])),U) == [])){
+                        Flag = 1;
+                        Shape = cons(G[J],Shape);
+                        break;
+                    }
+                }
+            }
+            if(Flag == 0){break;}
+        }    
+        Shape = reverse(Shape);
+        if(Flag == 1){
+            return([Shape,Random]);
+        }
+        Random = [];
+        G = Q;
+        Max += 1;
+        for(I=0;I<length(V);I++){
+            Random = cons(random() % Max - floor(Max/2),Random);
+        }
+        G = affine(G,V,Random);
+    }
+}
+
+/**************************************************************
+*  affine
+*
+*  Input : Q : an ideal in K[V]
+*          V : a list of variables
+*          C : a list of coefficients
+*  Output : Q_new : an ideal in K[V] obtained by applying an affine transformation with respect to C
+*           to the polynomials in Q
+*************************************************************/
+def affine (Q,V,C){
+    if(C == []){
+        return Q;
+    }
+    Y = V[length(V)-1];
+    for(I=0;I<length(C);I++){
+        Y = Y + C[I]*V[I];
+    }
+    Q_new = [];
+    for(I=0;I<length(Q);I++){
+        Q_new = cons(subst(Q[I],V[length(V)-1],Y),Q_new);
+    }
+    return reverse(Q_new);
+}
+
+/**************************************************************
+*  condition_ideal
+*
+*  Input : I : an ideal in K[A,V]
+*          A : parameters
+*          V : variables
+*  Output : the condition ideal of I
+*           (the ideal generated by polynomials in I which contain only parameters)
+*************************************************************/
+def condition_ideal(I,A,V){
+    G = nd_gr(I,append(V,A),0,[[0,length(V)],[0,length(A)]]);
+    CI = [];
+	for(J=0;J<length(G);J++){
+        if(setminus(vars(G[J]),V) == vars(G[J])){
+            CI = cons(G[J],CI);
+        }
+    }	
+    if (CI==[]){CI=[0];}
+    return(CI);
+}
+
+/**************************************************************
+*  leadcoef_ideal
+*
+*  Input : I : an ideal in K[A,V]
+*	       A : parameters
+*          V : variables
+*          OrderV : a monomial ordering on V
+*  Output : the leadcoef ideal of I with respect to OrderV
+*************************************************************/
+def leadcoef_ideal(I,A,V,OrderV){
+    if (type(OrderV) != 4){
+        Order = [[OrderV,length(V)],[0,length(A)]];
+    }else{
+        Order = append(OrderV,[[0,length(A)]]);
+    }
+
+    G = nd_gr(I,append(V,A),0,Order);
+    dp_ord(OrderV);
+    H = 1;
+    for(K=0;K<length(G);K++){
+        if (setminus(vars(G[K]),A) != []){
+            F = dp_hc(dp_ptod(G[K],V));
+            H = lcm(H,F);
+        }
+    }
+    SFP = sqfrpart(H);
+    return(SFP);
+}
+
+/**************************************************************
+*  msis_prime
+*
+*  Input : I : an ideal in K[A,V]
+*          A : parameters
+*          V : variables
+*  Output : MSIS (Maximal Strongly Independent Set) of I
+*************************************************************/
+def msis_prime(I,A,V){
+    VA = append(V,A);
+    Order = [[0,length(V)],[0,length(A)]];
+    G1 = nd_gr(I,VA,0,Order);
+    dp_ord(Order);
+    Initial = [];
+    for(K=0;K<length(G1);K++){
+        Poly = G1[K];
+        Initial = cons(dp_dtop(dp_ht(dp_ptod(Poly,VA)),VA),Initial);
+    }
+
+    L = noro_pd.prime_dec(Initial,VA);
+    D = length(VA);
+    MinL = [];
+    for(K=0;K<length(L);K++){
+        if(MinL==[] || length(L[K])<=length(MinL[0])){
+            if(MinL!=[] && length(L[K])<length(MinL[0])){
+                MinL = [];
+            }
+            MinL = cons(L[K],MinL);
+        }
+    }
+
+    X = MinL[0];
+    for(K=0;K<length(MinL);K++){
+        if(length(setminus(MinL[K],A))>length(setminus(X,A))){
+            X = MinL[K];
+        }
+    }
+
+    MSIS = setminus(VA,X);
+    return(MSIS);
+} 
+
+/**************************************************************
+*  setminus
+*
+*  Input : L : a list
+*          M : a list
+*  Output : a list of elements in L that are not in M
+*************************************************************/
+def setminus(L,M){
+    LL = [];
+    for(I=0;I<length(L);I++){
+        Flag = 0;
+        for(J=0;J<length(M);J++){
+            if(M[J]==L[I]){
+                Flag = 1;
+            }
+        }
+        if(Flag==0){
+            LL = cons(L[I],LL);
+        }
+    }
+    return reverse(LL);
+}
+
+/**************************************************************
+*  sqfrpart
+*
+*  Input : F : a polynomial
+*  Output : square-free part of F
+*************************************************************/
+def sqfrpart(F){
+    SFP = 1;
+    SF = sqfr(F);
+    for(J=0;J<length(SF);J++){
+      SFP *= SF[J][0];
+    }
+    return(SFP);
+}
+
+end$
